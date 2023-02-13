@@ -11,6 +11,7 @@ package topic
 
 import (
 	"github.com/redpanda-data/redpanda/src/go/rpk/pkg/cli/cmd/common"
+	"github.com/redpanda-data/redpanda/src/go/rpk/pkg/cli/cmd/topic/autorestore"
 	"github.com/spf13/afero"
 	"github.com/spf13/cobra"
 )
@@ -35,6 +36,7 @@ func NewCommand(fs afero.Fs) *cobra.Command {
 	common.AddKafkaFlags(command, &configFile, &user, &password, &mechanism, &enableTLS, &certFile, &keyFile, &truststoreFile, &brokers)
 
 	command.AddCommand(
+		autorestore.NewCommand(fs),
 		newAddPartitionsCommand(fs),
 		newAlterConfigCommand(fs),
 		newConsumeCommand(fs),
