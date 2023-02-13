@@ -122,3 +122,84 @@ func TestStartAutomatedRecovery(t *testing.T) {
 		})
 	}
 }
+
+func TestPollAutomatedRecoveryStatus(t *testing.T) {
+	pendingResponse := &TopicRecoveryStatus{
+		State: "pending",
+		TopicDownloads: []TopicDownloadCounts{
+			{
+				TopicNamespace:      "test-namespace",
+				PendingDownloads:    1,
+				SuccessfulDownloads: 0,
+				FailedDownloads:     0,
+			},
+		},
+		RecoveryRequest: RecoveryRequestParams{
+			TopicNamesPattern: ".*",
+		},
+	}
+	ctx := context.Background()
+	runTest := func(t *testing.T, test requestTestCase) {
+		baseURL := "http://non-existent-url"
+
+		if test.testFn != nil {
+			server := httptest.NewServer(http.HandlerFunc(test.testFn(t)))
+			defer server.Close()
+			baseURL = server.URL
+		}
+		client, err := NewAdminAPI([]string{baseURL}, BasicCredentials{}, nil)
+		assert.NoError(t, err)
+
+		resp, err := client.PollAutomatedRecoveryStatus(ctx)
+		if test.shouldError {
+			assert.Error(t, err)
+			// Using assert.Contains instead of assert.Equal as some error messages change depending on the environment.
+			assert.Contains(t, err.Error(), test.expectedErrorMsg)
+			return
+		}
+		assert.NoError(t, err)
+
+		assert.Equal(t, resp, test.expectedResponse)
+	}
+
+	tests := []requestTestCase{
+		{
+			name: "should return TopicRecoveryStatus when server returns 200",
+			testFn: func(t *testing.T) testRequestHandler {
+				return func(w http.ResponseWriter, r *http.Request) {
+					w.WriteHeader(http.StatusOK)
+
+					respBodyBytes, err := json.Marshal(pendingResponse)
+					assert.NoError(t, err)
+
+					w.Write(respBodyBytes)
+				}
+			},
+			shouldError:      false,
+			expectedResponse: pendingResponse,
+		},
+		{
+			name: "should call the correct endpoint",
+			testFn: func(t *testing.T) testRequestHandler {
+				return func(w http.ResponseWriter, r *http.Request) {
+					assert.Equal(t, "/v1/cloud_storage/automated_recovery", r.URL.Path)
+
+					w.WriteHeader(http.StatusOK)
+
+					resp, err := json.Marshal(pendingResponse)
+					assert.NoError(t, err)
+
+					w.Write(resp)
+				}
+			},
+			shouldError:      false,
+			expectedResponse: pendingResponse,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			runTest(t, test)
+		})
+	}
+}

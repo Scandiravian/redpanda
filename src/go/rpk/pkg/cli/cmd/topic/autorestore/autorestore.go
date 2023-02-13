@@ -23,6 +23,7 @@ func NewCommand(fs afero.Fs) *cobra.Command {
 
 	cmd.AddCommand(
 		newStartCommand(fs),
+		newStatusCommand(fs),
 	)
 
 	return cmd
