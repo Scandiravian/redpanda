@@ -56,4 +56,3 @@ func (a *AdminAPI) PollAutomatedRecoveryStatus(ctx context.Context) (*TopicRecov
 	var response TopicRecoveryStatus
 	return &response, a.sendAny(ctx, http.MethodGet, "/v1/cloud_storage/automated_recovery", http.NoBody, &response)
 }
-

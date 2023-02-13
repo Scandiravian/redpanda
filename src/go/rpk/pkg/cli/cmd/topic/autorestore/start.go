@@ -11,6 +11,7 @@ package autorestore
 import (
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/redpanda-data/redpanda/src/go/rpk/pkg/api/admin"
 	"github.com/redpanda-data/redpanda/src/go/rpk/pkg/config"
@@ -21,6 +22,8 @@ import (
 
 func newStartCommand(fs afero.Fs) *cobra.Command {
 	var topicNamePattern string
+	var wait bool
+	var pollingInterval uint
 
 	cmd := &cobra.Command{
 		Use:   "start",
@@ -34,7 +37,9 @@ func newStartCommand(fs afero.Fs) *cobra.Command {
 			client, err := admin.NewClient(fs, cfg)
 			out.MaybeDie(err, "unable to initialize admin client: %v", err)
 
-			_, err = client.StartAutomatedRecovery(cmd.Context(), topicNamePattern)
+			ctx := cmd.Context()
+
+			_, err = client.StartAutomatedRecovery(ctx, topicNamePattern)
 			var he *admin.HTTPResponseError
 			if errors.As(err, &he) {
 				if he.Response.StatusCode == 404 {
@@ -51,12 +56,49 @@ func newStartCommand(fs afero.Fs) *cobra.Command {
 			}
 
 			out.MaybeDie(err, "error starting auto-restore: %v", err)
-			fmt.Printf("Successfully started auto-restore\n")
+			fmt.Println("Successfully started auto-restore")
 
+			if !wait {
+				return
+			}
+			pollingIntervalSeconds := time.Duration(pollingInterval) * time.Second
+
+			fmt.Println("Waiting for auto-restore to complete...")
+
+			for {
+				status, err := client.PollAutomatedRecoveryStatus(ctx)
+				out.MaybeDie(err, "failed to poll automated recovery status: %v", err)
+
+				pending := false
+				for _, topicDownload := range status.TopicDownloads {
+					if topicDownload.PendingDownloads > 0 {
+						pending = true
+						break
+					}
+				}
+
+				if !pending {
+					failedPartitionReplicas := []string{}
+					for _, topicDownload := range status.TopicDownloads {
+						if topicDownload.FailedDownloads > 0 {
+							failedPartitionReplicas = append(failedPartitionReplicas, topicDownload.TopicNamespace)
+						}
+					}
+
+					if len(failedPartitionReplicas) > 0 {
+						out.Die("automated recovery failed to download partition replicas: %v", failedPartitionReplicas)
+					}
+
+					break
+				}
+				time.Sleep(pollingIntervalSeconds)
+			}
 		},
 	}
 
 	cmd.Flags().StringVar(&topicNamePattern, "topic-name-pattern", ".*", "A regex pattern to match topic names against. Only topics whose names match this pattern will be restored. If not passed, all topics will be restored.")
+	cmd.Flags().BoolVarP(&wait, "wait", "w", false, "Wait until auto-restore is complete.")
+	cmd.Flags().UintVar(&pollingInterval, "polling-interval", 5, "The interval in seconds between each status check. Ignored if --wait is not passed.")
 
 	return cmd
 }
